@@ -84,9 +84,8 @@ float calculate_stddev(float arr[]) {
     return stddev;
 }
 
-void normArray(float *arr, float stdDev){ //z normalisation
+void normArray(float arr[], float stdDev, float mean){ //z normalisation
     int i;
-    float mean = calculate_mean(&arr, BUFFER_SIZE);
     for (i=0; i<BUFFER_SIZE; i++){
     	arr[i]= (arr[i]-mean) / stdDev;
     }
@@ -122,20 +121,28 @@ void array_slice(const float *source, float *destination, int start, int end) {
 
 }
 
-float performPAA(double arr[], int segments) {
+float* performPAA(float arr[], int segments) {
     int windowSize = BUFFER_SIZE / segments;
     float paaResult[segments];
 
     int i;
-    for (int i = 0; i < segments; i++) {
+    for (i = 0; i < segments; i++) {
         float windowSum = 0.0;
-        for (int j = i * segmentSize; j < (i + 1) * segmentSize; j++) {
-            segmentSum += arr[j];
+        int j;
+        for ( j= i * windowSize; j < (i + 1) * windowSize; j++) {
+            windowSum += arr[j];
         }
         paaResult[i] = windowSum / windowSize;
     }
 
     return paaResult;
+}
+
+void unnormaliseArray(float *arr, int size, float mean, float stddev) {
+    int i;
+    for (i = 0; i < size; i++) {
+        arr[i] = (arr[i] * stddev) + mean;
+    }
 }
 
 /*----------------------- end of func def -----------------------------------*/
@@ -155,6 +162,7 @@ PROCESS_THREAD(read_process, ev, data)
     static struct etimer timer;
     static int count = 0;
     static float stdDev = 0;
+    static float mean = 0;
 
     // Any process must start with this.
     PROCESS_BEGIN();
@@ -197,35 +205,35 @@ PROCESS_THREAD(read_process, ev, data)
 	  printArray(buffer, BUFFER_SIZE);
 
 	  // calculate StdDev
+	  mean = calculate_mean(buffer, BUFFER_SIZE);
 	  stdDev = calculate_stddev(buffer);
 	  printf("StdDev = %d.%03u\n", d1(stdDev),d2(stdDev));
 
 	  // z normalise array
-	  normArray(buffer, stdDev);
+	  // normArray(buffer, stdDev, mean);
 	  
 	  // choose aggregation method
 	  if (stdDev > high_thres){ 	// high activity
  	     printf("Aggregation = Nil\n");
+	     //unnormaliseArray(myData, 3, mean, stdDev);
 	     printf("X = ");
  	     printArray(buffer, BUFFER_SIZE);
 	     printf("\n");
           }
 	  else if (stdDev > mid_thres){ // some activity
 	     printf("Aggregation = 4-into-1\n");
-	     float myData[3];
- 	     for (i=0; i<3; i++){
-		float temp_arr[3];
-		array_slice(buffer, temp_arr, i, i+4);
-		myData[i] = calculate_mean(temp_arr, 4);
-	     }
+	     float* myData = performPAA(&buffer, 3);
+	     printArray(myData, 3);
+	     //unnormaliseArray(myData, 3, mean, stdDev);
 	     printf("X = ");
  	     printArray(myData, 3);
              printf("\n");
 	  }
 	  else {  		// low activity
   	     printf("Aggregation = 12-into-1\n");
-	     float myData[1];
-	     myData[0] = calculate_mean(buffer, BUFFER_SIZE);
+	     float* myData = performPAA(&buffer, 1);
+	     printArray(myData, 1);
+	     //unnormaliseArray(myData, 1, mean, stdDev);
 	     printf("X = ");
  	     printArray(myData, 1);
              printf("\n");
