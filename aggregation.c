@@ -5,7 +5,7 @@
 #include "dev/sht11-sensor.h"
 #include "dev/light-sensor.h"
 
-#define MAX_VALUES  10 // Number of values used in aggregation process (K)
+#define MAX_VALUES  12 // Number of values used in aggregation process (K)
 #define READINGS_PER_SECOND 2
 #define BUFFER_SIZE 12
 
@@ -65,7 +65,7 @@ float find_root(float n){
 }
 
 float calculate_mean(float arr[], int n) {
-    double sum = 0;
+    float sum = 0;
     int i;
     for (i = 0; i < n; i++) {
         sum += arr[i];
@@ -106,24 +106,18 @@ void unnormaliseArray(float *arr, int size, float mean, float stddev) {
 }
 
 void clearArray(float arr[]) {
-    //int n = sizeof(arr);
     int i;
-    if (MAX_VALUES < BUFFER_SIZE){
-	    // move elements
-	    for (i = 0; i < MAX_VALUES; i++) {
-		arr[i] = arr[i+MAX_VALUES]; 
-	    }
-	    // clear the rest
-	    for (i = BUFFER_SIZE - MAX_VALUES; i < BUFFER_SIZE-1; i++) {
-        	arr[i] = 0.0;
-    	    }
-    }
-    else{
-	for (i = 0; i < BUFFER_SIZE-1; i++) {
-		arr[i] = 0.0; 
-	}
+    for (i = 0; i < BUFFER_SIZE-1; i++) {
+      arr[i] = 0.0; 
     }
     arr[BUFFER_SIZE-1] = -1.0;
+}
+
+void deqArray(float arr[]){
+    int i;
+    for (i = 0; i < BUFFER_SIZE-1; i++) {
+      arr[i] = arr[i+1]; 
+    }
 }
 
 void printArray(float arr[], int n) {
@@ -161,7 +155,7 @@ void performPAA(float src[], float dst[], int segments) {
         }
         dst[i] = windowSum / windowSize;
     }
-    printArray(dst, segments);
+    //printArray(dst, segments);
 }
 
 /*----------------------- end of func def -----------------------------------*/
@@ -186,9 +180,6 @@ PROCESS_THREAD(read_process, ev, data)
     static float mean = 0;
 
     static float buffer[BUFFER_SIZE];
-    buffer[BUFFER_SIZE-1] = -1.0; // indicate array is not filled
-    //printf("check buffer[11]: %d.%03u\n", d1(buffer[11]),d2(buffer[11]));
-
     static float high_thres = 100.0; // stdDev value thres
     static float mid_thres = 50.0;
     int segments;
@@ -220,12 +211,20 @@ PROCESS_THREAD(read_process, ev, data)
   	float lightVal = getLight();
         printf("count: %d\n", count-1);
         printf("[reading process] reading = %d.%03u\n",d1(lightVal),d2(lightVal));
-	buffer[count-1] = lightVal;
+	if (mean > 0){
+	   deqArray(buffer);
+	   buffer[11] = lightVal;
+        }
+	else{
+	  buffer[count-1] = lightVal;
+        }
+	//printf("check buffer[11]: %d.%03u\n", d1(buffer[11]),d2(buffer[11]));
+        //printArray(buffer, BUFFER_SIZE);
         //printf("size of buf: %d\n", sizeof(buffer));
 
 
         // Check if enough samples are collected
-       	if (count==MAX_VALUES && buffer[11] > 0)
+       	if (count>=MAX_VALUES && buffer[11] > 0)
        	{
 	  printf("\nB = ");
 	  printArray(buffer, BUFFER_SIZE);
@@ -269,7 +268,7 @@ PROCESS_THREAD(read_process, ev, data)
 	
 	  // Reset variables
        	  count = 0;
-	  clearArray(buffer);
+	  //clearArray(buffer);
 	  //free(aggData);
 
         } // end if
