@@ -5,9 +5,11 @@
 #include "dev/sht11-sensor.h"
 #include "dev/light-sensor.h"
 
-#define MAX_VALUES  12 // Number of values used in aggregation process (K)
+#define MAX_VALUES  10 // Number of values used in aggregation process (K)
 #define READINGS_PER_SECOND 2
 #define BUFFER_SIZE 12
+
+/*----------------------- sensor transfer func -----------------------------------*/
 
 float getTemperature(void)
 {
@@ -31,6 +33,7 @@ float getLight(void)
   return light;
 }
 
+/*----------------------- printf type cast helper func --------------------------*/
 
 int d1(float f) // Integer part
 {
@@ -43,6 +46,8 @@ unsigned int d2(float f) // Fractional part
   else
     return(1000*(d1(f)-f));
 }
+
+/*----------------------- calculation func -----------------------------------*/
 
 float find_root(float n){
 	float difference = 0.0;
@@ -84,6 +89,8 @@ float calculate_stddev(float arr[]) {
     return stddev;
 }
 
+/*----------------------- array func -----------------------------------*/
+
 void normArray(float arr[], float stdDev, float mean){ //z normalisation
     int i;
     for (i=0; i<BUFFER_SIZE; i++){
@@ -91,12 +98,32 @@ void normArray(float arr[], float stdDev, float mean){ //z normalisation
     }
 }
 
+void unnormaliseArray(float *arr, int size, float mean, float stddev) {
+    int i;
+    for (i = 0; i < size; i++) {
+        arr[i] = (arr[i] * stddev) + mean;
+    }
+}
+
 void clearArray(float arr[]) {
     //int n = sizeof(arr);
     int i;
-    for (i = 0; i < BUFFER_SIZE; i++) {
-        arr[i] = 0; 
+    if (MAX_VALUES < BUFFER_SIZE){
+	    // move elements
+	    for (i = 0; i < MAX_VALUES; i++) {
+		arr[i] = arr[i+MAX_VALUES]; 
+	    }
+	    // clear the rest
+	    for (i = BUFFER_SIZE - MAX_VALUES; i < BUFFER_SIZE-1; i++) {
+        	arr[i] = 0.0;
+    	    }
     }
+    else{
+	for (i = 0; i < BUFFER_SIZE-1; i++) {
+		arr[i] = 0.0; 
+	}
+    }
+    arr[BUFFER_SIZE-1] = -1.0;
 }
 
 void printArray(float arr[], int n) {
@@ -111,41 +138,34 @@ void printArray(float arr[], int n) {
     printf("]\n");
 }
 
-void array_slice(const float *source, float *destination, int start, int end) {
+/*----------------------- aggregation func -----------------------------------*/
+
+void array_slice(float src[], float dst[], int start, int end) {
     int i, j = 0;
 
     // Copy elements from start to end-1 to the destination array
     for (i = start; i < end; i++) {
-        destination[j++] = source[i];
+        dst[j++] = src[i];
     }
 
 }
 
-float* performPAA(float arr[], int segments) {
+void performPAA(float src[], float dst[], int segments) {
     int windowSize = BUFFER_SIZE / segments;
-    float paaResult[segments];
-
     int i;
     for (i = 0; i < segments; i++) {
         float windowSum = 0.0;
         int j;
         for ( j= i * windowSize; j < (i + 1) * windowSize; j++) {
-            windowSum += arr[j];
+            windowSum += src[j];
         }
-        paaResult[i] = windowSum / windowSize;
+        dst[i] = windowSum / windowSize;
     }
-
-    return paaResult;
-}
-
-void unnormaliseArray(float *arr, int size, float mean, float stddev) {
-    int i;
-    for (i = 0; i < size; i++) {
-        arr[i] = (arr[i] * stddev) + mean;
-    }
+    printArray(dst, segments);
 }
 
 /*----------------------- end of func def -----------------------------------*/
+
 /*------------------------------program starts-------------------------------*/
 static process_event_t event_data_ready; // Application specific event value
 
@@ -160,9 +180,19 @@ PROCESS_THREAD(read_process, ev, data)
     /* Variables are declared static to ensure their values are kept */
     /* between kernel calls. */
     static struct etimer timer;
+
     static int count = 0;
     static float stdDev = 0;
     static float mean = 0;
+
+    static float buffer[BUFFER_SIZE];
+    buffer[BUFFER_SIZE-1] = -1.0; // indicate array is not filled
+    //printf("check buffer[11]: %d.%03u\n", d1(buffer[11]),d2(buffer[11]));
+
+    static float high_thres = 100.0; // stdDev value thres
+    static float mid_thres = 50.0;
+    int segments;
+    int i;
 
     // Any process must start with this.
     PROCESS_BEGIN();
@@ -180,10 +210,6 @@ PROCESS_THREAD(read_process, ev, data)
     // Set the etimer module to generate a periodic event
     etimer_set(&timer, CLOCK_CONF_SECOND/READINGS_PER_SECOND);
 
-    static float buffer[BUFFER_SIZE];
-    static float high_thres = 100.0; // stdDev value thres
-    static float mid_thres = 50.0;
-    int i;
     while (1)
     {
         // Wait here for the timer to expire
@@ -199,9 +225,9 @@ PROCESS_THREAD(read_process, ev, data)
 
 
         // Check if enough samples are collected
-       	if (count==MAX_VALUES)
+       	if (count==MAX_VALUES && buffer[11] > 0)
        	{
-	  printf("B = ");
+	  printf("\nB = ");
 	  printArray(buffer, BUFFER_SIZE);
 
 	  // calculate StdDev
@@ -215,33 +241,36 @@ PROCESS_THREAD(read_process, ev, data)
 	  // choose aggregation method
 	  if (stdDev > high_thres){ 	// high activity
  	     printf("Aggregation = Nil\n");
-	     //unnormaliseArray(myData, 3, mean, stdDev);
+	     //unnormaliseArray(myData, 12, mean, stdDev);
 	     printf("X = ");
  	     printArray(buffer, BUFFER_SIZE);
 	     printf("\n");
           }
 	  else if (stdDev > mid_thres){ // some activity
 	     printf("Aggregation = 4-into-1\n");
-	     float* myData = performPAA(&buffer, 3);
-	     printArray(myData, 3);
+             segments = 3;
+	     float aggData[segments];
+             performPAA(buffer, aggData, segments);
 	     //unnormaliseArray(myData, 3, mean, stdDev);
 	     printf("X = ");
- 	     printArray(myData, 3);
+ 	     printArray(aggData, 3);
              printf("\n");
 	  }
 	  else {  		// low activity
   	     printf("Aggregation = 12-into-1\n");
-	     float* myData = performPAA(&buffer, 1);
-	     printArray(myData, 1);
-	     //unnormaliseArray(myData, 1, mean, stdDev);
+             segments = 1;
+	     float aggData[segments];
+	     performPAA(buffer, aggData, segments);
+	     //unnormaliseArray(myData, 3, mean, stdDev);
 	     printf("X = ");
- 	     printArray(myData, 1);
+ 	     printArray(aggData, 1);
              printf("\n");
 	  }
 	
 	  // Reset variables
        	  count = 0;
 	  clearArray(buffer);
+	  //free(aggData);
 
         } // end if
 
