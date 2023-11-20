@@ -190,7 +190,8 @@ float estimateCos(float x, int terms) { // taylor series
 }
 
 float calculateDCT(float input[], int l) {
-    int k, x;
+    int k;
+    float x;
     float sum = 0.0;
 
     for (k = 0; k < BUFFER_SIZE; k++) {
