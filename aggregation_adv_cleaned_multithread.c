@@ -141,6 +141,7 @@ float calculateAutocorrelation(float X[], int lag, float mean, float stdDev)
     for (t = 1; t < BUFFER_SIZE - lag; t++)
     {
         sum += (X[t] - mean) * (X[t + lag] - mean);
+	//printf("%d: %d.%03u\n", t, d1(sum), d2(sum));
     }
 
     return sum / denominator;
@@ -178,12 +179,14 @@ float calculateDCT(float input[], int l)
 /*----------------------- end of func def -----------------------------------*/
 
 /*------------------------------program starts-------------------------------*/
+static process_event_t event_data_ready; // Application specific event value
 
 /*---------------------------------------------------------------------------*/
 PROCESS(read_process, "Reading process");
+PROCESS(m_process, "Measurement process");
 
 /* We require the processes to be started automatically */
-AUTOSTART_PROCESSES(&read_process);
+AUTOSTART_PROCESSES(&read_process, &m_process);
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(read_process, ev, data)
 {
@@ -192,15 +195,14 @@ PROCESS_THREAD(read_process, ev, data)
     static struct etimer timer;
 
     static int count = 0;
-    static float stdDev = 0;
-    static float mean = 0;
     static float buffer[BUFFER_SIZE];
-    static float autocorr[BUFFER_SIZE];
-    static float dct[BUFFER_SIZE];
-    int segments, k, l;
+    static float mean = 0;
 
     // Any process must start with this.
     PROCESS_BEGIN();
+
+    // Allocate the required event
+    event_data_ready = process_alloc_event();
 
     // Initialise the temperature sensor
     SENSORS_ACTIVATE(light_sensor); // need this for sky-mote emulation
@@ -238,66 +240,8 @@ PROCESS_THREAD(read_process, ev, data)
         // Check if enough samples are collected
         if (count >= MAX_VALUES && buffer[11] > 0)
         {
-            printf("\nB = ");
-            printArray(buffer, BUFFER_SIZE);
-
-            // calculate StdDev
-            mean = calculate_mean(buffer, BUFFER_SIZE);
-            stdDev = calculate_stddev(buffer);
-            printf("StdDev = %d.%03u\n", d1(stdDev), d2(stdDev));
-
-            // z normalise array
-            // normArray(buffer, stdDev, mean);
-
-            // choose aggregation method
-            if (stdDev > HIGH_THRES)
-            { // high activity
-                printf("Aggregation = Nil\n");
-                // unnormaliseArray(myData, 12, mean, stdDev);
-                printf("X = ");
-                printArray(buffer, BUFFER_SIZE);
-                printf("\n");
-            }
-            else if (stdDev > MID_THRES)
-            { // some activity
-                printf("Aggregation = 4-into-1\n");
-                segments = 3;
-                float aggData[segments];
-                performPAA(buffer, aggData, segments);
-                // unnormaliseArray(myData, 3, mean, stdDev);
-                printf("X = ");
-                printArray(aggData, segments);
-                printf("\n");
-            }
-            else
-            { // low activity
-                printf("Aggregation = 12-into-1\n");
-                segments = 1;
-                float aggData[segments];
-                performPAA(buffer, aggData, segments);
-                // unnormaliseArray(myData, 3, mean, stdDev);
-                printf("X = ");
-                printArray(aggData, segments);
-                printf("\n");
-            }
-
-            // calculate autocorrelation for all k = {0,1,2....n-1}
-            for (k = 0; k < BUFFER_SIZE; k++)
-            {
-                autocorr[k] = calculateAutocorrelation(buffer, k, mean, stdDev);
-            }
-            printf("autocorrelation: ");
-            printArray(autocorr, BUFFER_SIZE);
-
-            // discrete consine transform
-            for (l = 0; l < BUFFER_SIZE; l++)
-            {
-                dct[l] = calculateDCT(autocorr, l);
-            }
-            printf("DCT: ");
-            printArray(dct, BUFFER_SIZE);
-            printf("\n");
-
+	    mean = calculate_mean(buffer, BUFFER_SIZE);
+            process_post(&m_process, event_data_ready, &buffer);
             // Reset variables
             count = 0;
 
@@ -310,3 +254,87 @@ PROCESS_THREAD(read_process, ev, data)
     // Any process must end with this, even if it is never reached.
     PROCESS_END();
 } // end thread
+
+/* Implementation of the second process */
+PROCESS_THREAD(m_process, ev, data)
+{
+    static float stdDev = 0;
+    static float mean = 0;
+    static float autocorr[BUFFER_SIZE];
+    static float dct[BUFFER_SIZE];
+    int segments, k, l;
+
+    PROCESS_BEGIN();
+
+    while (1)
+    {
+        // Wait until we get a data_ready event
+        PROCESS_WAIT_EVENT_UNTIL(ev == event_data_ready);
+
+        // Use 'data' variable to retrieve data and then display it
+        //printf("[measurement process] data ready\n");
+        //printArray(data, BUFFER_SIZE);
+
+        printf("\nB = ");
+        printArray(data, BUFFER_SIZE);
+
+        // calculate StdDev
+        mean = calculate_mean(data, BUFFER_SIZE);
+        stdDev = calculate_stddev(data);
+        printf("StdDev = %d.%03u\n", d1(stdDev), d2(stdDev));
+
+        // z normalise array
+        // normArray(buffer, stdDev, mean);
+
+        // choose aggregation method
+        if (stdDev > HIGH_THRES)
+        { // high activity
+            printf("Aggregation = Nil\n");
+            // unnormaliseArray(myData, 12, mean, stdDev);
+            printf("X = ");
+            printArray(data, BUFFER_SIZE);
+            printf("\n");
+        }
+        else if (stdDev > MID_THRES)
+        { // some activity
+            printf("Aggregation = 4-into-1\n");
+            segments = 3;
+            float aggData[segments];
+            performPAA(data, aggData, segments);
+            // unnormaliseArray(myData, 3, mean, stdDev);
+            printf("X = ");
+            printArray(aggData, segments);
+            printf("\n");
+        }
+        else
+        { // low activity
+            printf("Aggregation = 12-into-1\n");
+            segments = 1;
+            float aggData[segments];
+            performPAA(data, aggData, segments);
+            // unnormaliseArray(myData, 3, mean, stdDev);
+            printf("X = ");
+            printArray(aggData, segments);
+            printf("\n");
+        }
+
+        // calculate autocorrelation for all k = {0,1,2....n-1}
+        for (k = 0; k < BUFFER_SIZE; k++)
+        {
+            autocorr[k] = calculateAutocorrelation(data, k, mean, stdDev);
+        }
+        printf("autocorrelation: ");
+        printArray(autocorr, BUFFER_SIZE);
+
+        // discrete consine transform
+        for (l = 0; l < BUFFER_SIZE; l++)
+        {
+            dct[l] = calculateDCT(autocorr, l);
+        }
+        printf("DCT: ");
+        printArray(dct, BUFFER_SIZE);
+        printf("\n");
+    }
+    PROCESS_END();
+}
+/*---------------------------------------------------------------------------*/

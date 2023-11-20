@@ -169,7 +169,7 @@ float calculateAutocorrelation(float X[], int lag, float mean, float stdDev) {
     float denominator = (BUFFER_SIZE - lag) * stdDev * stdDev;
 
     int t;
-    for (t = 1; t <= BUFFER_SIZE-lag; t++) {
+    for (t = 1; t < BUFFER_SIZE-lag; t++) {
         sum += (X[t] - mean) * (X[t + lag] - mean);
     }
 
@@ -190,8 +190,7 @@ float estimateCos(float x, int terms) { // taylor series
 }
 
 float calculateDCT(float input[], int l) {
-    int k;
-    float x;
+    int k, x;
     float sum = 0.0;
 
     for (k = 0; k < BUFFER_SIZE; k++) {
