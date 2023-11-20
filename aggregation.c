@@ -8,6 +8,8 @@
 #define MAX_VALUES  12 // Number of values used in aggregation process (K)
 #define READINGS_PER_SECOND 2
 #define BUFFER_SIZE 12
+#define HIGH_THRES 150.0 // stdDev value thres
+#define MID_THRES 50.0
 
 /*----------------------- sensor transfer func -----------------------------------*/
 
@@ -65,7 +67,7 @@ float find_root(float n){
 }
 
 float calculate_mean(float arr[], int n) {
-    float sum = 0;
+    double sum = 0;
     int i;
     for (i = 0; i < n; i++) {
         sum += arr[i];
@@ -180,10 +182,9 @@ PROCESS_THREAD(read_process, ev, data)
     static float mean = 0;
 
     static float buffer[BUFFER_SIZE];
-    static float high_thres = 100.0; // stdDev value thres
+    static float high_thres = 150.0; // stdDev value thres
     static float mid_thres = 50.0;
     int segments;
-    int i;
 
     // Any process must start with this.
     PROCESS_BEGIN();
@@ -238,21 +239,21 @@ PROCESS_THREAD(read_process, ev, data)
 	  // normArray(buffer, stdDev, mean);
 	  
 	  // choose aggregation method
-	  if (stdDev > high_thres){ 	// high activity
+	  if (stdDev > HIGH_THRES){ 	// high activity
  	     printf("Aggregation = Nil\n");
 	     //unnormaliseArray(myData, 12, mean, stdDev);
 	     printf("X = ");
  	     printArray(buffer, BUFFER_SIZE);
 	     printf("\n");
           }
-	  else if (stdDev > mid_thres){ // some activity
+	  else if (stdDev > MID_THRES){ // some activity
 	     printf("Aggregation = 4-into-1\n");
              segments = 3;
 	     float aggData[segments];
              performPAA(buffer, aggData, segments);
 	     //unnormaliseArray(myData, 3, mean, stdDev);
 	     printf("X = ");
- 	     printArray(aggData, 3);
+ 	     printArray(aggData, segments);
              printf("\n");
 	  }
 	  else {  		// low activity
@@ -262,7 +263,7 @@ PROCESS_THREAD(read_process, ev, data)
 	     performPAA(buffer, aggData, segments);
 	     //unnormaliseArray(myData, 3, mean, stdDev);
 	     printf("X = ");
- 	     printArray(aggData, 1);
+ 	     printArray(aggData, segments);
              printf("\n");
 	  }
 	
